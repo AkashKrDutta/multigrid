@@ -33,8 +33,8 @@ using namespace std;
 #include <thrust/device_vector.h>
 #include <thrust/extrema.h>
 int jump=1;
-dim3 blockSize(4, 4, 1);
-dim3 gridSize((X_SIZE / blockSize.x) + 1, (Y_SIZE / blockSize.y) + 1, 1);
+dim3 blockSize(32,32,1);
+dim3 gridSize((X_SIZE / blockSize.x)+1, (Y_SIZE / blockSize.y)+1,1);
 
 void rstrict(int rx,int ry,int rz)
 {
@@ -211,19 +211,22 @@ __global__ void jacobi(float *d_Arr, float * d_rho, float * d_ans, float *d_ANS,
 	x_idx*=jump;
 	y_idx*=jump;
 	int i;
-	if( (x_idx <(X_SIZE-1)) && (y_idx<(Y_SIZE-1)) && (x_idx>0) && (y_idx>0)){
-			for (i = jump; i < Z_SIZE-jump; i+=jump){
-				d_ANS[pos(x_idx, y_idx, i)] = d_Arr[pos(x_idx, y_idx, i)] + (-d_rho[pos(x_idx, y_idx, i)] + d_ans[pos(x_idx, y_idx, i)]) / (2*((1/(h_x*h_x))+(1/(h_y*h_y))+(1/(h_z*h_z))));
+	if(x_idx<X_SIZE && y_idx <Y_SIZE){
+		if( (x_idx <(X_SIZE-1)) && (y_idx<(Y_SIZE-1)) && (x_idx>0) && (y_idx>0)){
+				for (i = jump; i < Z_SIZE-1; i+=jump){
+					d_ANS[pos(x_idx, y_idx, i)] = d_Arr[pos(x_idx, y_idx, i)] + (-d_rho[pos(x_idx, y_idx, i)] + d_ans[pos(x_idx, y_idx, i)]) / (2*((1/(h_x*h_x))+(1/(h_y*h_y))+(1/(h_z*h_z))));
+				}
 			}
+			
+		else if(x_idx==0 || x_idx == X_SIZE-1 || y_idx == 0 || y_idx==Y_SIZE-1)
+		{
+			for(int i=jump;i<Z_SIZE-jump;i+=jump)
+				d_ANS[pos(x_idx,y_idx,i)]=0;
 		}
-		
-	else if(x_idx==0 || x_idx == X_SIZE-1 || y_idx == 0 || y_idx==Y_SIZE-1)
-	{
-		for(int i=jump;i<Z_SIZE-jump;i+=jump)
-			d_ANS[pos(x_idx,y_idx,i)]=0;
+		d_ANS[pos(x_idx,y_idx,0)]=0;
+		d_ANS[pos(x_idx,y_idx,Z_SIZE-1)]=0;
 	}
-	d_ANS[pos(x_idx,y_idx,0)]=0;
-	d_ANS[pos(x_idx,y_idx,Z_SIZE-1)]=0;
+
 }
 
 __global__ void subtract(float *d_Arr, float * d_ANS, float* d_sub)
@@ -431,8 +434,8 @@ int main()
 	cudaMemcpy(d_Arr, Array, SIZE*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_rho, h_rho, SIZE*sizeof(float), cudaMemcpyHostToDevice);
 	//rstrict(9,9,9);
-
-	for (int i = 0; i<200; i++)
+	//cout<<jump;
+	for (int i = 0; i<50; i++)
 	{
 
 
@@ -497,7 +500,7 @@ int main()
 	//justtest<<<1,1>>>(d_ANS);
 	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 	// rstrict(9,9,9);
-	// laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
+	//laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
 	// gridsize.x=(((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1;
 	// gridsize.y=(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1;
 	// gridsize.z=1;
@@ -505,6 +508,7 @@ int main()
 	// interpolate(gridSize,blockSize,d_ANS);
 	cudaMemcpy(h_ANS, d_ANS, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
 	int count=0;
+	//cout<<jump;
 	for(int k=0;k<Z_SIZE;k+=jump)
 	{
 		for(int j=0;j<Y_SIZE;j+=jump)
@@ -519,7 +523,7 @@ int main()
 		}
 		cout<<endl<<endl;
 	}
-	cout << h_ANS[pos(X_SIZE / 2-1, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count;;
+	cout << h_ANS[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;
 	/*for (int k = 0; k<Z_SIZE; ++k)
 	{
 	for (int j = 0; j<Y_SIZE; ++j)
