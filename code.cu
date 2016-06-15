@@ -38,7 +38,7 @@ int jump_z=1;
 dim3 blockSize(4, 4, 1);
 dim3 gridSize((X_SIZE / blockSize.x) + 1, (Y_SIZE / blockSize.y) + 1, 1);
 
-void restrict(int rx,int ry,int rz)
+void rstrict(int rx,int ry,int rz)
 {
 	int mult=(X_SIZE-1)/(rx-1);
 	jump_x*=mult;
@@ -143,65 +143,68 @@ __global__ void dev_interpolate(float *d_arr,int jump_x,int jump_y,int jump_z)
 // 	}
 // 	if (tid == 0) c[blockIdx.x] = sdata[0];
 // }
-__device__ float funFinite(float *arr, int x_idx, int y_idx, int z_idx)
+__device__ float funFinite(float *arr, int x_idx, int y_idx, int z_idx,int jump_x,int jump_y,int jump_z)
 {
 	float deriv = 0.0;
 
 	if ((x_idx > 0) && (x_idx<(X_SIZE - 1)))
 	{
-		deriv += (arr[pos(x_idx - 1, y_idx, z_idx)] - (2 * arr[pos(x_idx, y_idx, z_idx)]) + arr[pos(x_idx + 1, y_idx, z_idx)]) / (h_x*h_x);
+		deriv += (arr[pos(x_idx - 1*jump_x, y_idx, z_idx)] - (2 * arr[pos(x_idx, y_idx, z_idx)]) + arr[pos(x_idx + 1*jump_x, y_idx, z_idx)]) / (h_x*h_x);
 	}
 	else if (x_idx == 0)
 	{
-		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx + 1, y_idx, z_idx)]) +
-			(4 * arr[pos(x_idx + 2, y_idx, z_idx)]) - (arr[pos(x_idx + 3, y_idx, z_idx)])) / (h_x*h_x);
+		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx + 1*jump_x, y_idx, z_idx)]) +
+			(4 * arr[pos(x_idx + 2*jump_x, y_idx, z_idx)]) - (arr[pos(x_idx + 3*jump_x, y_idx, z_idx)])) / (h_x*h_x);
 	}
 	else if (x_idx == (X_SIZE - 1))
 	{
-		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx - 1, y_idx, z_idx)]) +
-			(4 * arr[pos(x_idx - 2, y_idx, z_idx)]) - (arr[pos(x_idx - 3, y_idx, z_idx)])) / (h_x*h_x);
+		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx - 1*jump_x, y_idx, z_idx)]) +
+			(4 * arr[pos(x_idx - 2*jump_x, y_idx, z_idx)]) - (arr[pos(x_idx - 3*jump_x, y_idx, z_idx)])) / (h_x*h_x);
 	}
 	
 	if ((y_idx > 0) && (y_idx<(Y_SIZE - 1)))
 	{
-		deriv += (arr[pos(x_idx, y_idx - 1, z_idx)] - (2 * arr[pos(x_idx, y_idx, z_idx)]) + arr[pos(x_idx, y_idx + 1, z_idx)]) / (h_y*h_y);
+		deriv += (arr[pos(x_idx, y_idx - 1*jump_y, z_idx)] - (2 * arr[pos(x_idx, y_idx, z_idx)]) + arr[pos(x_idx, y_idx + 1*jump_y, z_idx)]) / (h_y*h_y);
 	}
 	else if (y_idx == 0)
 	{		
-		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx + 1, z_idx)]) +
-			(4 * arr[pos(x_idx, y_idx + 2, z_idx)]) - (arr[pos(x_idx, y_idx + 3, z_idx)])) / (h_y*h_y);
+		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx + 1*jump_y, z_idx)]) +
+			(4 * arr[pos(x_idx, y_idx + 2*jump_y, z_idx)]) - (arr[pos(x_idx, y_idx + 3*jump_y, z_idx)])) / (h_y*h_y);
 	}
 	else if (y_idx == (Y_SIZE - 1))
 	{
-		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx - 1, z_idx)]) +
-			(4 * arr[pos(x_idx, y_idx - 2, z_idx)]) - (arr[pos(x_idx, y_idx - 3, z_idx)])) / (h_y*h_y);
+		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx - 1*jump_y, z_idx)]) +
+			(4 * arr[pos(x_idx, y_idx - 2*jump_y, z_idx)]) - (arr[pos(x_idx, y_idx - 3*jump_y, z_idx)])) / (h_y*h_y);
 	}
 	if ((z_idx > 0) && (z_idx<(Z_SIZE - 1)))
 	{
-		deriv += (arr[pos(x_idx, y_idx, z_idx - 1)] - (2 * arr[pos(x_idx, y_idx, z_idx)]) + arr[pos(x_idx, y_idx, z_idx + 1)]) / (h_z*h_z);
+		deriv += (arr[pos(x_idx, y_idx, z_idx - 1*jump_z)] - (2 * arr[pos(x_idx, y_idx, z_idx)]) + arr[pos(x_idx, y_idx, z_idx + 1*jump_z)]) / (h_z*h_z);
 	}
 	else if (z_idx == 0)
 	{
-		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx, z_idx + 1)]) +
-			(4 * arr[pos(x_idx, y_idx, z_idx + 2)]) - (arr[pos(x_idx, y_idx, z_idx + 3)])) / (h_z*h_z);
+		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx, z_idx + 1*jump_z)]) +
+			(4 * arr[pos(x_idx, y_idx, z_idx + 2*jump_z)]) - (arr[pos(x_idx, y_idx, z_idx + 3*jump_z)])) / (h_z*h_z);
 	}
 	else if (z_idx == (Z_SIZE - 1))
 	{
-		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx, z_idx - 1)]) +
-			(4 * arr[pos(x_idx, y_idx, z_idx - 2)]) - (arr[pos(x_idx, y_idx, z_idx - 3)])) / (h_z*h_z);
+		deriv += ((2 * arr[pos(x_idx, y_idx, z_idx)]) - (5 * arr[pos(x_idx, y_idx, z_idx - 1*jump_z)]) +
+			(4 * arr[pos(x_idx, y_idx, z_idx - 2*jump_z)]) - (arr[pos(x_idx, y_idx, z_idx - 3*jump_z)])) / (h_z*h_z);
 	}
 	return deriv;
 }
 
-__global__ void laplacian(float *arr, float *ans)
+__global__ void laplacian(float *arr, float *ans,int jump_x,int jump_y,int jump_z)
 {
+
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump_x;
+	y_idx*=jump_y;
 	//int z_idx = (blockIdx.z*blockDim.z) + threadIdx.z;
 	int i;
 	if(x_idx<X_SIZE && y_idx<Y_SIZE){
-		for (i = 0; i < Z_SIZE; i++){
-			ans[pos(x_idx, y_idx, i)] = funFinite(arr, x_idx, y_idx, i);
+		for (i = 0; i < Z_SIZE; i+=jump_z){
+			ans[pos(x_idx, y_idx, i)] = funFinite(arr, x_idx, y_idx, i,jump_x,jump_y,jump_z);
 		}
 	}
 }
@@ -262,12 +265,7 @@ __global__ void abs_subtract(float *d_Arr, float * d_ANS, float* d_sub)
 // 		}
 // }
 
-void interpolate(float * d_ANS)
-{
-	host_interpolate();
-	dev_interpolate <<<gridSize,blockSize>>>(d_ANS,jump_x,jump_y,jump_z);
-	// call smoother();
-}
+
 __global__ void justtest(float*d_ANS)
 {
 	for(int k=0;k<Z_SIZE;k++)
@@ -296,7 +294,7 @@ void smoother(float* d_rho,float * d_ANS,int N)
 	copy<<<gridsize,blockSize>>>(d_Arr,d_ANS);
 	for(int i=0;i<N;i++)
 	{
-		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans);
+		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
 		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS);
 		dummy = d_Arr;
 		d_Arr = d_ANS;
@@ -306,13 +304,19 @@ void smoother(float* d_rho,float * d_ANS,int N)
 	cudaFree(d_ans);
 	cudaFree(d_Arr);
 }
+void interpolate(float * d_ANS,float * d_residual,int N)
+{
+	host_interpolate();
+	dev_interpolate <<<gridSize,blockSize>>>(d_ANS,jump_x,jump_y,jump_z);
+	smoother(d_residual,d_ANS,N);
+}
 
 void residual(float * d_residual,float *d_ANS,float* d_rho)
 {
 	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 	float * d_laplace;
 	cudaMalloc((void**)&d_laplace,sizeof(SIZE));
-	laplacian<<<gridsize,blockSize>>>(d_ANS,d_laplace);
+	laplacian<<<gridsize,blockSize>>>(d_ANS,d_laplace,jump_x,jump_y,jump_z);
 	//cudaDeviceSynchronize();
 	subtract<<<gridsize,blockSize>>>(d_rho,d_laplace,d_residual);
 	cudaFree(d_laplace);
@@ -327,7 +331,7 @@ void solver(float * d_residual,float* d_error, float eps)
 	cudaMalloc((void**)&d_Arr,sizeof(SIZE));
 	copy<<<gridsize,blockSize>>>(d_Arr,d_error);
 	do{
-		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans);
+		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_y);
 		jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error);
 		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_error, d_sub);
 		thrust::device_ptr<float> dev_ptr(d_sub);
@@ -341,21 +345,48 @@ void solver(float * d_residual,float* d_error, float eps)
 	cudaFree(d_ans);
 	cudaFree(d_sub);
 }
-
-void Vcycle(float * d_rho,float* d_Arr,float error,int N,int rx,int ry,int rz)
+__global__ void all_zero(float *arr,int jump_x,int jump_y,int jump_z)
 {
+	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
+	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump_x;
+	y_idx*=jump_y;
+	if(x_idx<X_SIZE && y_idx < Y_SIZE)
+	{
+		for(int i=0;i<Z_SIZE;i+=jump_z)
+			arr[pos(x_idx,y_idx,i)]=0;
+	}
+}
+__global__ void add(float * d1,float* d2,float* dest,int jump_x,int jump_y,int jump_z)
+{
+	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
+	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump_x;
+	y_idx*=jump_y;
+	if(x_idx<X_SIZE && y_idx < Y_SIZE)
+	{
+		for(int i=0;i<Z_SIZE;i+=jump_z)
+			dest[pos(x_idx,y_idx,i)]=d1[pos(x_idx,y_idx,i)]+d2[pos(x_idx,y_idx,i)];
+	}
+}
+
+void Vcycle(float * d_rho,float* d_Arr,float* d_error,float error,int N,int rx,int ry,int rz)
+{
+	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 	smoother(d_rho,d_Arr,N);
 	float * d_residual,max_error;
 	cudaMalloc((void**)&d_residual,sizeof(float)*SIZE);
 	residual(d_residual,d_Arr,d_rho);
+	rstrict(rx,ry,rz);
+	solver(d_residual,d_error,error);//init error to all 0 before calling Vcylce
+	while(jump_x>1)
+		interpolate(d_error,d_residual,N);
+	add<<<gridSize,blockSize>>>(d_error,d_Arr,d_Arr,jump_x,jump_y,jump_z);
+	residual(d_residual,d_Arr,d_rho);
 	thrust::device_ptr<float> dev_ptr(d_residual);
 	thrust::device_ptr<float> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
 	max_error=*devsptr;
-	while(max_error>error)
-	{
-		restrict(rx,ry,rz);
-
-	}
+	cout<<"Current error= "<<max_error;
 }
 
 int main()
@@ -402,12 +433,11 @@ int main()
 	cudaMemcpy(d_Arr, Array, SIZE*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_rho, h_rho, SIZE*sizeof(float), cudaMemcpyHostToDevice);
 
-
 	for (int i = 0; i<200; i++)
 	{
 
 
-		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans);
+		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
 
 		//cudaMemcpy(h_Arr, d_ans, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
 		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS);
@@ -426,17 +456,17 @@ int main()
 
 		// to make manually
 
-		/*cudaMemcpy(h_sub, d_sub, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
-		float max_val = fabs(h_sub[0]);
-		for (int j = 0; j < SIZE; j++)
-		{
+		// cudaMemcpy(h_sub, d_sub, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+		// float max_val = fabs(h_sub[0]);
+		// for (int j = 0; j < SIZE; j++)
+		// {
 
-			if (max_val < fabs(h_sub[j]))
-				max_val = h_sub[j];
+		// 	if (max_val < fabs(h_sub[j]))
+		// 		max_val = h_sub[j];
 
-		}
-		cout << max_val << endl;
-		*/
+		// }
+		// cout << max_val << endl;
+		
 		//max << <1, SIZE ,SIZE*sizeof(float)>> > (d_sub, d_blockmax);
 		//cudaMemcpy(h_blockmax, d_blockmax, sizeof(float), cudaMemcpyDeviceToHost);
 		//cout << *h_blockmax << endl;
@@ -466,7 +496,13 @@ int main()
 	}
 	d_ANS=d_Arr;
 	//justtest<<<1,1>>>(d_ANS);
-	// restrict(9,9,9);
+	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
+	rstrict(9,9,9);
+	// laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
+	// gridsize.x=(((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1;
+	// gridsize.y=(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1;
+	// gridsize.z=1;
+	// add<<<gridsize,blockSize>>>(d_ANS,d_ANS,d_ANS,jump_x,jump_y,jump_z);
 	// interpolate(gridSize,blockSize,d_ANS);
 	cudaMemcpy(h_ANS, d_ANS, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
 	int count=0;
