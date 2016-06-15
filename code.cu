@@ -210,20 +210,22 @@ __global__ void laplacian(float *arr, float *ans,int jump_x,int jump_y,int jump_
 }
 
 
-__global__ void jacobi(float *d_Arr, float * d_rho, float * d_ans, float *d_ANS)
+__global__ void jacobi(float *d_Arr, float * d_rho, float * d_ans, float *d_ANS,int jump_x,int jump_y,int jump_z)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump_x;
+	y_idx*=jump_y;
 	int i;
 	if( (x_idx <(X_SIZE-1)) && (y_idx<(Y_SIZE-1)) && (x_idx>0) && (y_idx>0)){
-			for (i = 1; i < Z_SIZE-1; i++){
+			for (i = jump_z; i < Z_SIZE-jump_z; i+=jump_z){
 				d_ANS[pos(x_idx, y_idx, i)] = d_Arr[pos(x_idx, y_idx, i)] + (-d_rho[pos(x_idx, y_idx, i)] + d_ans[pos(x_idx, y_idx, i)]) / (2*((1/(h_x*h_x))+(1/(h_y*h_y))+(1/(h_z*h_z))));
 			}
 		}
 		
 	else if(x_idx==0 || x_idx == X_SIZE-1 || y_idx == 0 || y_idx==Y_SIZE-1)
 	{
-		for(int i=1;i<Z_SIZE-1;i++)
+		for(int i=jump_z;i<Z_SIZE-jump_z;i+=jump_z)
 			d_ANS[pos(x_idx,y_idx,i)]=0;
 	}
 	d_ANS[pos(x_idx,y_idx,0)]=0;
@@ -242,13 +244,15 @@ __global__ void subtract(float *d_Arr, float * d_ANS, float* d_sub)
 	}
 }
 
-__global__ void abs_subtract(float *d_Arr, float * d_ANS, float* d_sub)
+__global__ void abs_subtract(float *d_Arr, float * d_ANS, float* d_sub,int jump_x,int jump_y,int jump_z)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump_x;
+	y_idx*=jump_y;
 	int i;
 	if(x_idx<X_SIZE && y_idx < Y_SIZE){
-		for (i = 0; i < Z_SIZE; i++){
+		for (i = 0; i < Z_SIZE; i+=jump_z){
 			d_sub[pos(x_idx, y_idx, i)] =abs(d_Arr[pos(x_idx, y_idx, i)]-d_ANS[pos(x_idx, y_idx, i)]);
 		}
 	}
@@ -295,7 +299,7 @@ void smoother(float* d_rho,float * d_ANS,int N)
 	for(int i=0;i<N;i++)
 	{
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
-		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS);
+		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump_x,jump_y,jump_z);
 		dummy = d_Arr;
 		d_Arr = d_ANS;
 		d_ANS=dummy;
@@ -332,8 +336,8 @@ void solver(float * d_residual,float* d_error, float eps)
 	copy<<<gridsize,blockSize>>>(d_Arr,d_error);
 	do{
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_y);
-		jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error);
-		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_error, d_sub);
+		jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error,jump_x,jump_y,jump_z);
+		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_error, d_sub,jump_x,jump_y,jump_z);
 		thrust::device_ptr<float> dev_ptr(d_sub);
 		thrust::device_ptr<float> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
 		max_error=*devsptr;
@@ -405,8 +409,8 @@ int main()
 				h_rho[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 				//h_Arr[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 			}
-	h_rho[pos(X_SIZE / 2-1, Y_SIZE / 2, Z_SIZE/2 )] = 100;
-	h_rho[pos(X_SIZE / 2+1, Y_SIZE / 2, Z_SIZE / 2 )] = -100;
+	h_rho[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE/2 )] = 100;
+	h_rho[pos(X_SIZE / 2+2, Y_SIZE / 2, Z_SIZE / 2 )] = -100;
 	// dim3 blockSize(4, 4, 1);
 	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 
@@ -432,17 +436,18 @@ int main()
 	//cudaMalloc((void**)&d_blockmax, sizeof(float));
 	cudaMemcpy(d_Arr, Array, SIZE*sizeof(float), cudaMemcpyHostToDevice);
 	cudaMemcpy(d_rho, h_rho, SIZE*sizeof(float), cudaMemcpyHostToDevice);
+	//rstrict(9,9,9);
 
-	for (int i = 0; i<200; i++)
+	for (int i = 0; i<50; i++)
 	{
 
 
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
 
 		//cudaMemcpy(h_Arr, d_ans, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
-		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS);
+		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump_x,jump_y,jump_z);
 
-		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_ANS, d_sub);
+		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_ANS, d_sub,jump_x,jump_y,jump_z);
 
 
 		//thrust::host_vector<float> h_vec(SIZE);
@@ -497,7 +502,7 @@ int main()
 	d_ANS=d_Arr;
 	//justtest<<<1,1>>>(d_ANS);
 	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
-	rstrict(9,9,9);
+	// rstrict(9,9,9);
 	// laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump_x,jump_y,jump_z);
 	// gridsize.x=(((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1;
 	// gridsize.y=(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1;
