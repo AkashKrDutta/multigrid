@@ -265,7 +265,18 @@ __global__ void abs_subtract(float *d_Arr, float * d_ANS, float* d_sub,int jump)
 // 			d_ans[pos(x_idx, y_idx, i)] =abs(d_Arr[pos(x_idx, y_idx, i)]);
 // 		}
 // }
-
+__global__ void all_zero(float *arr,int jump)
+{
+	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
+	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump;
+	y_idx*=jump;
+	if(x_idx<X_SIZE && y_idx < Y_SIZE)
+	{
+		for(int i=0;i<Z_SIZE;i+=jump)
+			arr[pos(x_idx,y_idx,i)]=0;
+	}
+}
 
 __global__ void justtest(float*d_ANS)
 {
@@ -275,24 +286,29 @@ __global__ void justtest(float*d_ANS)
 				d_ANS[pos(i,j,k)]=i+j+k;
 }
 
-__global__ void copy(float* d_to,float* d_from)
+__global__ void copy(float* d_to,float* d_from,int jump)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
+	x_idx*=jump;
+	y_idx*=jump;
 	if(x_idx<X_SIZE && y_idx < Y_SIZE)
 	{
-		for(int i=0;i<Z_SIZE;i++)
+		for(int i=0;i<Z_SIZE;i+=jump)
 			d_to[pos(x_idx,y_idx,i)]=d_from[pos(x_idx,y_idx,i)];
 	}
 }
 
 void smoother(float* d_rho,float * d_ANS,int N)
 {
-	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
+	dim3 gridsize;
+	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.z=1;
 	float * d_ans,* dummy,*d_Arr;
 	cudaMalloc((void**)&d_Arr,sizeof(float)*(SIZE));
 	cudaMalloc((void**)&d_ans,sizeof(float)*(SIZE));
-	copy<<<gridsize,blockSize>>>(d_Arr,d_ANS);
+	copy<<<gridsize,blockSize>>>(d_Arr,d_ANS,jump);
 	for(int i=0;i<N;i++)
 	{
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
@@ -314,7 +330,10 @@ void interpolate(float * d_ANS,float * d_residual,int N)
 
 void residual(float * d_residual,float *d_ANS,float* d_rho)
 {
-	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
+	dim3 gridsize;
+	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.z=1;
 	float * d_laplace;
 	cudaMalloc((void**)&d_laplace,sizeof(float)*(SIZE));
 	laplacian<<<gridsize,blockSize>>>(d_ANS,d_laplace,jump);
@@ -325,12 +344,16 @@ void residual(float * d_residual,float *d_ANS,float* d_rho)
 
 void solver(float * d_residual,float* d_error, float eps)
 {
-	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
+	dim3 gridsize;
+	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.z=1;
 	float * d_Arr,*d_ans,max_error,*d_sub,*dummy;
 	cudaMalloc((void**)&d_ans,sizeof(float)*(SIZE));
 	cudaMalloc((void**)&d_sub,sizeof(float)*(SIZE));
 	cudaMalloc((void**)&d_Arr,sizeof(float)*(SIZE));
-	copy<<<gridsize,blockSize>>>(d_Arr,d_error);
+	copy<<<gridsize,blockSize>>>(d_Arr,d_error,jump);
+	all_zero<<<gridsize,blockSize>>>(d_sub,1);
 	do{
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
 		jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error,jump);
@@ -346,19 +369,9 @@ void solver(float * d_residual,float* d_error, float eps)
 	d_error=d_Arr;
 	cudaFree(d_ans);
 	cudaFree(d_sub);
+	cout<<gridsize.x<<" "<<gridsize.y;
 }
-__global__ void all_zero(float *arr,int jump)
-{
-	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
-	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
-	x_idx*=jump;
-	y_idx*=jump;
-	if(x_idx<X_SIZE && y_idx < Y_SIZE)
-	{
-		for(int i=0;i<Z_SIZE;i+=jump)
-			arr[pos(x_idx,y_idx,i)]=0;
-	}
-}
+
 __global__ void add(float * d1,float* d2,float* dest,int jump)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
@@ -410,7 +423,10 @@ int main()
 	h_rho[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE/2 )] = 100;
 	h_rho[pos(X_SIZE / 2+2, Y_SIZE / 2, Z_SIZE / 2 )] = -100;
 	// dim3 blockSize(4, 4, 1);
-	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
+	dim3 gridsize;
+	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
+	gridsize.z=1;
 
 	float *d_Arr;
 	float *d_ans;
@@ -499,6 +515,7 @@ int main()
 	// }
 	// d_ANS=d_Arr;
 	//residual(d_ANS,d_Arr,d_rho);
+	rstrict(9,9,9);
 	solver(d_rho,d_Arr,.0001);
 	//justtest<<<1,1>>>(d_ANS);
 	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
