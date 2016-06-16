@@ -290,8 +290,8 @@ void smoother(float* d_rho,float * d_ANS,int N)
 {
 	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
 	float * d_ans,* dummy,*d_Arr;
-	cudaMalloc((void**)&d_Arr,sizeof(SIZE));
-	cudaMalloc((void**)&d_ans,sizeof(SIZE));
+	cudaMalloc((void**)&d_Arr,sizeof(float)*(SIZE));
+	cudaMalloc((void**)&d_ans,sizeof(float)*(SIZE));
 	copy<<<gridsize,blockSize>>>(d_Arr,d_ANS);
 	for(int i=0;i<N;i++)
 	{
@@ -316,7 +316,7 @@ void residual(float * d_residual,float *d_ANS,float* d_rho)
 {
 	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
 	float * d_laplace;
-	cudaMalloc((void**)&d_laplace,sizeof(SIZE));
+	cudaMalloc((void**)&d_laplace,sizeof(float)*(SIZE));
 	laplacian<<<gridsize,blockSize>>>(d_ANS,d_laplace,jump);
 	//cudaDeviceSynchronize();
 	subtract<<<gridsize,blockSize>>>(d_rho,d_laplace,d_residual);
@@ -327,9 +327,9 @@ void solver(float * d_residual,float* d_error, float eps)
 {
 	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
 	float * d_Arr,*d_ans,max_error,*d_sub,*dummy;
-	cudaMalloc((void**)&d_ans,sizeof(SIZE));
-	cudaMalloc((void**)&d_sub,sizeof(SIZE));
-	cudaMalloc((void**)&d_Arr,sizeof(SIZE));
+	cudaMalloc((void**)&d_ans,sizeof(float)*(SIZE));
+	cudaMalloc((void**)&d_sub,sizeof(float)*(SIZE));
+	cudaMalloc((void**)&d_Arr,sizeof(float)*(SIZE));
 	copy<<<gridsize,blockSize>>>(d_Arr,d_error);
 	do{
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
@@ -435,68 +435,69 @@ int main()
 	cudaMemcpy(d_rho, h_rho, SIZE*sizeof(float), cudaMemcpyHostToDevice);
 	//rstrict(9,9,9);
 	//cout<<jump;
-	for (int i = 0; i<50; i++)
-	{
+	// for (int i = 0; i<250; i++)
+	// {
 
 
-		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
+	// 	laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
 
-		//cudaMemcpy(h_Arr, d_ans, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
-		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump);
+	// 	//cudaMemcpy(h_Arr, d_ans, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+	// 	jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump);
 
-		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_ANS, d_sub,jump);
+	// 	abs_subtract << <gridsize, blockSize >> >(d_Arr, d_ANS, d_sub,jump);
 
 
-		//thrust::host_vector<float> h_vec(SIZE);
-		//thrust::generate(h_vec.begin(), h_vec.end(), rand);
-		//for (int i = 0; i < 100; i++)
-		//h_vec[i] = i;
-		//thrust::device_vector<float>::iterator iter =
-		//thrust::max_element(d_subtract.begin(), d_subtract.end());
+	// 	//thrust::host_vector<float> h_vec(SIZE);
+	// 	//thrust::generate(h_vec.begin(), h_vec.end(), rand);
+	// 	//for (int i = 0; i < 100; i++)
+	// 	//h_vec[i] = i;
+	// 	//thrust::device_vector<float>::iterator iter =
+	// 	//thrust::max_element(d_subtract.begin(), d_subtract.end());
 
-		//unsigned int position = iter - d_sub.begin();
+	// 	//unsigned int position = iter - d_sub.begin();
 
-		// to make manually
+	// 	// to make manually
 
-		// cudaMemcpy(h_sub, d_sub, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
-		// float max_val = fabs(h_sub[0]);
-		// for (int j = 0; j < SIZE; j++)
-		// {
+	// 	// cudaMemcpy(h_sub, d_sub, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+	// 	// float max_val = fabs(h_sub[0]);
+	// 	// for (int j = 0; j < SIZE; j++)
+	// 	// {
 
-		// 	if (max_val < fabs(h_sub[j]))
-		// 		max_val = h_sub[j];
+	// 	// 	if (max_val < fabs(h_sub[j]))
+	// 	// 		max_val = h_sub[j];
 
-		// }
-		// cout << max_val << endl;
+	// 	// }
+	// 	// cout << max_val << endl;
 		
-		//max << <1, SIZE ,SIZE*sizeof(float)>> > (d_sub, d_blockmax);
-		//cudaMemcpy(h_blockmax, d_blockmax, sizeof(float), cudaMemcpyDeviceToHost);
-		//cout << *h_blockmax << endl;
+	// 	//max << <1, SIZE ,SIZE*sizeof(float)>> > (d_sub, d_blockmax);
+	// 	//cudaMemcpy(h_blockmax, d_blockmax, sizeof(float), cudaMemcpyDeviceToHost);
+	// 	//cout << *h_blockmax << endl;
 
-		//cudaDeviceSynchronize();
-		thrust::device_ptr<float> dev_ptr(d_sub);
-		thrust::device_ptr<float> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
-		//cudaDeviceSynchronize();
-		cout << *devsptr<<endl;
+	// 	//cudaDeviceSynchronize();
+	// 	thrust::device_ptr<float> dev_ptr(d_sub);
+	// 	thrust::device_ptr<float> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
+	// 	//cudaDeviceSynchronize();
+	// 	cout << *devsptr<<endl;
 
-		//cudaMemcpy(h_Arr, d_Arr, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
-		//for (int k = 0; k < SIZE; k++)
-		//cout << h_ANS[k]<<" ";
-		//cout << endl;
+	// 	//cudaMemcpy(h_Arr, d_Arr, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+	// 	//for (int k = 0; k < SIZE; k++)
+	// 	//cout << h_ANS[k]<<" ";
+	// 	//cout << endl;
 
-		//for (int i = 0; i < 5; i++)
-		//cout << h_ANS[i] << " ";
-		//cout << endl;
+	// 	//for (int i = 0; i < 5; i++)
+	// 	//cout << h_ANS[i] << " ";
+	// 	//cout << endl;
 
-		// if(max_val<EPSILON)
-		// 	break;
-		if(*devsptr<EPSILON)
-			break;
-		dummy = d_Arr;
-		d_Arr = d_ANS;
-		d_ANS = dummy;
-	}
-	d_ANS=d_Arr;
+	// 	// if(max_val<EPSILON)
+	// 	// 	break;
+	// 	if(*devsptr<EPSILON)
+	// 		break;
+	// 	dummy = d_Arr;
+	// 	d_Arr = d_ANS;
+	// 	d_ANS = dummy;
+	// }
+	// d_ANS=d_Arr;
+	smoother(d_rho,d_Arr,100);
 	//justtest<<<1,1>>>(d_ANS);
 	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 	// rstrict(9,9,9);
@@ -506,7 +507,7 @@ int main()
 	// gridsize.z=1;
 	// add<<<gridsize,blockSize>>>(d_ANS,d_ANS,d_ANS,jump_x,jump_y,jump_z);
 	// interpolate(gridSize,blockSize,d_ANS);
-	cudaMemcpy(h_ANS, d_ANS, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_ANS, d_Arr, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
 	int count=0;
 	//cout<<jump;
 	for(int k=0;k<Z_SIZE;k+=jump)
