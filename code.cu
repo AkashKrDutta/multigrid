@@ -341,7 +341,8 @@ void solver(float * d_residual,float* d_error, float eps)
 		dummy=d_Arr;
 		d_Arr=d_error;
 		d_error=dummy;
-	}while(max_error<=eps);
+		cout<<max_error<<endl;
+	}while(max_error>eps);
 	d_error=d_Arr;
 	cudaFree(d_ans);
 	cudaFree(d_sub);
@@ -402,12 +403,12 @@ int main()
 		for (int j = 0; j<Y_SIZE; ++j)
 			for (int i = 0; i<X_SIZE; ++i)
 			{
-				Array[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = i*i+j*j+k*k;
+				Array[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 				h_rho[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 				//h_Arr[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 			}
-	// h_rho[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE/2 )] = 100;
-	// h_rho[pos(X_SIZE / 2+2, Y_SIZE / 2, Z_SIZE / 2 )] = -100;
+	h_rho[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE/2 )] = 100;
+	h_rho[pos(X_SIZE / 2+2, Y_SIZE / 2, Z_SIZE / 2 )] = -100;
 	// dim3 blockSize(4, 4, 1);
 	dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump)+1)/blockSize.y +1, 1);
 
@@ -497,7 +498,8 @@ int main()
 	// 	d_ANS = dummy;
 	// }
 	// d_ANS=d_Arr;
-	residual(d_ANS,d_Arr,d_rho);
+	//residual(d_ANS,d_Arr,d_rho);
+	solver(d_rho,d_Arr,.0001);
 	//justtest<<<1,1>>>(d_ANS);
 	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 	// rstrict(9,9,9);
@@ -507,7 +509,7 @@ int main()
 	// gridsize.z=1;
 	// add<<<gridsize,blockSize>>>(d_ANS,d_ANS,d_ANS,jump_x,jump_y,jump_z);
 	// interpolate(gridSize,blockSize,d_ANS);
-	cudaMemcpy(h_ANS, d_ANS, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
+	cudaMemcpy(h_ANS, d_Arr, SIZE*sizeof(float), cudaMemcpyDeviceToHost);
 	int count=0;
 	//cout<<jump;
 	for(int k=0;k<Z_SIZE;k+=jump)
