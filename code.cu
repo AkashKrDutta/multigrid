@@ -10,20 +10,20 @@
 
 using namespace std;
 
-#define X_SIZE 33
-#define Y_SIZE 33
-#define Z_SIZE 33
+#define X_SIZE 17
+#define Y_SIZE 17
+#define Z_SIZE 17
 #define h_x 1
 #define h_y 1
 #define h_z 1
-#define pos(x,y,z) ((x) + ((y)*X_SIZE) + ((z)*Y_SIZE*X_SIZE))
-#define SIZE  X_SIZE*Y_SIZE*Z_SIZE
+#define pos(x,y,z) ((x) + ((y)*X_SIZE) + ((z)*Y_SIZE*X_SIZE))		//macro to find the index of (x,y,z) in the grid
+#define SIZE  X_SIZE*Y_SIZE*Z_SIZE 									//total size of grid
 #define Max 500
 #define EPSILON .0000000001
 #define lx 9
 #define ly 9
 #define lz 9
-
+#define ITER 300					//no. of iterations used to calculate error
 
 //for thrust
 #include <cmath>
@@ -96,18 +96,7 @@ __global__ void dev_interpolate(double *d_arr,int jump)
 			x_state=1;
 		if((y_idx/jump)%2==1)
 			y_state=1;
-		// if( x_idx<X_SIZE && y_idx<Y_SIZE )
-		// {
-		// 	for(int i=0;i<Z_SIZE;i+=jump_z*2)
-		// 	{
-		// 		if( (y_idx%(jump_y*2))==jump_y)
-		// 			d_arr[pos(x_idx,y_idx,i)]=0.0;
-		// 		else if((x_idx%(jump_x*2))==jump_x)
-		// 			d_arr[pos(x_idx,y_idx,i)]=0.0;
-		// 	}
-		// 	for(int i=jump_z;i<Z_SIZE;i+=jump_z*2)
-		// 		d_arr[pos(x_idx,y_idx,i)]=0;
-		// }
+		
 		for(int i=0;i<Z_SIZE;i+=jump)
 		{	
 			if((i/jump)%2==1)
@@ -118,31 +107,7 @@ __global__ void dev_interpolate(double *d_arr,int jump)
 		}
 	}
 }
-// __global__ void max(double *a, double *c)
-// {
-// 	extern __shared__ double sdata[];
-//
-// 	unsigned int tid = threadIdx.x;
-// 	unsigned int i = blockIdx.x*blockDim.x + threadIdx.x;
-//
-// 	if (i < SIZE)
-// 		sdata[tid] = a[i];
-// 	else
-// 		sdata[tid] = FLT_MIN;
-//
-// 	__syncthreads();
-// 	for (unsigned int s = blockDim.x / 2; s >= 1; s = s / 2)
-// 	{
-// 		if (tid<= s)
-// 		{
-// 			if (sdata[tid]<sdata[tid + s])
-// 				sdata[tid] = sdata[tid + s];
-// 		}
-// 		//////////////////////////////
-// 		__syncthreads();
-// 	}
-// 	if (tid == 0) c[blockIdx.x] = sdata[0];
-// }
+
 __device__ double funFinite(double *arr, int x_idx, int y_idx, int z_idx,int jump)
 {
 	double deriv = 0.0;
@@ -200,7 +165,6 @@ __global__ void laplacian(double *arr, double *ans,int jump)
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
 	x_idx*=jump;
 	y_idx*=jump;
-	//int z_idx = (blockIdx.z*blockDim.z) + threadIdx.z;
 	int i;
 	if(x_idx<X_SIZE && y_idx<Y_SIZE){
 		for (i = 0; i < Z_SIZE; i+=jump){
@@ -210,7 +174,7 @@ __global__ void laplacian(double *arr, double *ans,int jump)
 }
 
 
-__global__ void jacobi(double *d_Arr, double * d_rho, double * d_ans, double *d_ANS,int jump)
+__global__ void jacobi(double *d_tempphi, double * d_rho, double * d_laplacian, double *d_phi,int jump)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
@@ -220,17 +184,17 @@ __global__ void jacobi(double *d_Arr, double * d_rho, double * d_ans, double *d_
 	if(x_idx<X_SIZE && y_idx <Y_SIZE){
 		if( (x_idx <(X_SIZE-1)) && (y_idx<(Y_SIZE-1)) && (x_idx>0) && (y_idx>0)){
 				for (i = jump; i < Z_SIZE-1; i+=jump){
-					d_ANS[pos(x_idx, y_idx, i)] = d_Arr[pos(x_idx, y_idx, i)] + (-d_rho[pos(x_idx, y_idx, i)] + d_ans[pos(x_idx, y_idx, i)]) / (2*((1/(h_x*h_x))+(1/(h_y*h_y))+(1/(h_z*h_z))));
+					d_phi[pos(x_idx, y_idx, i)] = d_tempphi[pos(x_idx, y_idx, i)] + (-d_rho[pos(x_idx, y_idx, i)] + d_laplacian[pos(x_idx, y_idx, i)]) / (2*((1/(h_x*h_x))+(1/(h_y*h_y))+(1/(h_z*h_z))));
 				}
 			}
 			
 		else if(x_idx==0 || x_idx == X_SIZE-1 || y_idx == 0 || y_idx==Y_SIZE-1)
 		{
 			for(int i=jump;i<Z_SIZE-1;i+=jump)
-				d_ANS[pos(x_idx,y_idx,i)]=0;
+				d_phi[pos(x_idx,y_idx,i)]=0;
 		}
-		d_ANS[pos(x_idx,y_idx,0)]=0;
-		d_ANS[pos(x_idx,y_idx,Z_SIZE-1)]=0;
+		d_phi[pos(x_idx,y_idx,0)]=0;
+		d_phi[pos(x_idx,y_idx,Z_SIZE-1)]=0;
 	}
 
 }
@@ -261,18 +225,18 @@ __global__ void abs_subtract(double *d_Arr, double * d_ANS, double* d_sub,int ju
 	}
 }
 
-__global__ void absolute(double *d_Arr,double* d_ans)
+__global__ void absolute(double *d_Arr,double* abs_d_Arr)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
 	int i;
 	if(x_idx<X_SIZE && y_idx < Y_SIZE){
 		for (i = 0; i < Z_SIZE; i++){
-			d_ans[pos(x_idx, y_idx, i)] =abs(d_Arr[pos(x_idx, y_idx, i)]);
+			abs_d_Arr[pos(x_idx, y_idx, i)] =abs(d_Arr[pos(x_idx, y_idx, i)]);
 		}
 	}
 }
-__global__ void all_zero(double *arr,int jump)
+__global__ void all_zero(double *arr,int jump) //initiaizes to zero
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
@@ -283,14 +247,6 @@ __global__ void all_zero(double *arr,int jump)
 		for(int i=0;i<Z_SIZE;i+=jump)
 			arr[pos(x_idx,y_idx,i)]=0;
 	}
-}
-
-__global__ void justtest(double*d_ANS)
-{
-	for(int k=0;k<Z_SIZE;k++)
-		for(int j=0;j<Y_SIZE;j++)
-			for(int i=0;i<X_SIZE;i++)
-				d_ANS[pos(i,j,k)]=i+j+k;
 }
 
 __global__ void copy(double* d_to,double* d_from,int jump)
@@ -305,56 +261,43 @@ __global__ void copy(double* d_to,double* d_from,int jump)
 			d_to[pos(x_idx,y_idx,i)]=d_from[pos(x_idx,y_idx,i)];
 	}
 }
-__global__ void findmax(double * d_Arr,double * ans,int jump)
-{
-	double max=d_Arr[0];
-	for(int k=0;k<Z_SIZE;k+=jump)
-		for(int j=0;j<Y_SIZE;j+=jump )
-			for(int i=0;i<X_SIZE;i+=jump)
-				if(max<d_Arr[pos(i,j,k)])
-					max=d_Arr[pos(i,j,k)];
-	*ans=max;
-}
 
-double* smoother(double* d_rho,double * d_ANS,int N)
+double* smoother(double* d_rho,double * d_phi,int N)
 {
 	dim3 gridsize;
 	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
 	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
 	gridsize.z=1;
-	double * d_ans,* dummy,*d_Arr;
-	cudaMalloc((void**)&d_Arr,sizeof(double)*(SIZE));
-	cudaMalloc((void**)&d_ans,sizeof(double)*(SIZE));
-	//cout<<gridsize.x<<"hehe"<<jump;
-	copy<<<gridsize,blockSize>>>(d_Arr,d_ANS,1);
+	double * d_laplacian,* dummy,*d_tempphi;
+	cudaMalloc((void**)&d_tempphi,sizeof(double)*(SIZE));
+	cudaMalloc((void**)&d_laplacian,sizeof(double)*(SIZE));
+	copy<<<gridsize,blockSize>>>(d_tempphi,d_phi,1);
 	for(int i=0;i<N;i++)
 	{
-		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
+		laplacian << <gridsize, blockSize >> > (d_tempphi, d_laplacian,jump);
 		cudaDeviceSynchronize();
-		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump);
-		dummy = d_Arr;
-		d_Arr = d_ANS;
-		d_ANS=dummy;
+		jacobi << <gridsize, blockSize >> > (d_tempphi, d_rho, d_laplacian, d_phi,jump);
+		dummy = d_tempphi;
+		d_tempphi = d_phi;
+		d_phi=dummy;
 	}
-	d_ANS=d_Arr;
-	cudaFree(d_ans);
+	d_phi=d_tempphi;
+	cudaFree(d_laplacian);
 	cudaFree(dummy);
-	return d_ANS;
+	return d_phi;
 }
-double* interpolate(double * d_ANS)
+double* interpolate(double * d_error)
 {
 	dim3 gridsize;
 	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
 	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
 	gridsize.z=1;
 	host_interpolate();
-	//cudaDeviceSynchronize();
-	dev_interpolate <<<gridsize,blockSize>>>(d_ANS,jump);
-	//d_ANS=smoother(d_residual,d_ANS,N);
-	return d_ANS;
+	dev_interpolate <<<gridsize,blockSize>>>(d_error,jump);
+	return d_error;
 }
 
-void residual(double * d_residual,double *d_ANS,double* d_rho)
+void residual(double * d_residual,double *d_guess,double* d_rho)
 {
 	dim3 gridsize;
 	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
@@ -362,8 +305,7 @@ void residual(double * d_residual,double *d_ANS,double* d_rho)
 	gridsize.z=1;
 	double * d_laplace;
 	cudaMalloc((void**)&d_laplace,sizeof(double)*(SIZE));
-	laplacian<<<gridsize,blockSize>>>(d_ANS,d_laplace,1);
-	//cudaDeviceSynchronize();
+	laplacian<<<gridsize,blockSize>>>(d_guess,d_laplace,1);
 	subtract<<<gridsize,blockSize>>>(d_rho,d_laplace,d_residual);
 	cudaFree(d_laplace);
 }
@@ -376,7 +318,6 @@ double* solver(double * d_residual,double* d_error, double eps)
 	gridsize.z=1;
 	double * d_Arr,*d_ans,max_error,*d_sub,*dummy;
 	double h_ans[1],*ans;
-	//cudaMalloc((void**)&ans,sizeof(double));
 	cudaMalloc((void**)&d_ans,sizeof(double)*(SIZE));
 	cudaMalloc((void**)&d_sub,sizeof(double)*(SIZE));
 	cudaMalloc((void**)&d_Arr,sizeof(double)*(SIZE));
@@ -386,9 +327,6 @@ double* solver(double * d_residual,double* d_error, double eps)
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
 		jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error,jump);
 		abs_subtract << <gridsize, blockSize >> >(d_Arr, d_error, d_sub,jump);
-		// thrust::device_ptr<double> dev_ptr(d_sub);
-		// thrust::device_ptr<double> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
-		// max_error=*devsptr;
 
 		findmax<<<1,1>>>(d_sub,ans,jump);
 		cudaMemcpy(h_ans,ans,sizeof(double),cudaMemcpyDeviceToHost);
@@ -398,26 +336,13 @@ double* solver(double * d_residual,double* d_error, double eps)
 		d_Arr=d_error;
 		d_error=dummy;
 	}while(max_error>eps);
-	// for(int i=0;i<100;i++)
-	// {
-	// 	laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
-	// 	jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error,jump);
-	// 	abs_subtract << <gridsize, blockSize >> >(d_Arr, d_error, d_sub,jump);
-	// 	thrust::device_ptr<double> dev_ptr(d_sub);
-	// 	thrust::device_ptr<double> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
-	// 	max_error=*devsptr;
-	// 	dummy=d_Arr;
-	// 	d_Arr=d_error;
-	// 	d_error=dummy;
-	// 	if(max_error<eps)
-	// 		break;
-	// }
+
 	d_error=d_Arr;
 	cudaFree(d_ans);
 	cudaFree(d_sub);
 	return d_error;
 }
-double* new_solver(double* d_rho,double * d_ANS,int N)
+double* new_solver(double* d_residual,double * d_error,int N)
 {
 	dim3 gridsize;
 	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
@@ -426,23 +351,20 @@ double* new_solver(double* d_rho,double * d_ANS,int N)
 	double * d_ans,* dummy,*d_Arr;
 	cudaMalloc((void**)&d_Arr,sizeof(double)*(SIZE));
 	cudaMalloc((void**)&d_ans,sizeof(double)*(SIZE));
-	//cout<<gridsize.x<<"hehe"<<jump;
-	copy<<<gridsize,blockSize>>>(d_Arr,d_ANS,jump);
+	copy<<<gridsize,blockSize>>>(d_Arr,d_error,1);
 	for(int i=0;i<N;i++)
 	{
 		laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
-		jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump);
+		jacobi << <gridsize, blockSize >> > (d_Arr, d_residual, d_ans, d_error,jump);
 		dummy = d_Arr;
-		d_Arr = d_ANS;
-		d_ANS=dummy;
+		d_Arr = d_error;
+		d_error=dummy;
 	}
-	d_ANS=d_Arr;
-	// cudaFree(d_ans);
-	// cudaFree(dummy);
-	return d_ANS;
+	d_error=d_Arr;
+	return d_error;
 }
 
-__global__ void add(double * d1,double* d2,double* dest,int jump)
+__global__ void add(double * d1,double* d2,double* sum,int jump)
 {
 	int x_idx = (blockIdx.x*blockDim.x) + threadIdx.x;
 	int y_idx = (blockIdx.y*blockDim.y) + threadIdx.y;
@@ -451,7 +373,7 @@ __global__ void add(double * d1,double* d2,double* dest,int jump)
 	if(x_idx<X_SIZE && y_idx < Y_SIZE)
 	{
 		for(int i=0;i<Z_SIZE;i+=jump)
-			dest[pos(x_idx,y_idx,i)]=d1[pos(x_idx,y_idx,i)]+d2[pos(x_idx,y_idx,i)];
+			sum[pos(x_idx,y_idx,i)]=d1[pos(x_idx,y_idx,i)]+d2[pos(x_idx,y_idx,i)];
 	}
 }
 
@@ -475,7 +397,6 @@ __global__ void boundary_zero(double* d_zero)
 
 void Vcycle(double * d_rho,double* d_Arr,double* d_error,double error,int N,int rx,int ry,int rz)
 {
-	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
 	smoother(d_rho,d_Arr,N);
 	double * d_residual,max_error;
 	cudaMalloc((void**)&d_residual,sizeof(double)*SIZE);
@@ -506,161 +427,62 @@ __global__ void do_negative(double * d_Arr)
 
 int main()
 {
-
-	double Array[SIZE];
-	//double h_Arr[SIZE];
+	//declaration of host variables
+	double guess[SIZE];
 	double h_rho[SIZE];
-	//double h_Arr[SIZE];
+	double h_ANS[SIZE];
 
+	//initialization of h_rho and guess array
 	for (int k = 0; k<Z_SIZE; ++k)
 		for (int j = 0; j<Y_SIZE; ++j)
 			for (int i = 0; i<X_SIZE; ++i)
 			{
-				Array[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
+				guess[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 				h_rho[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
-				//h_Arr[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] = 0;
 			}
 	h_rho[pos(X_SIZE / 2-4, Y_SIZE / 2, Z_SIZE/2 )] = 100;
 	h_rho[pos(X_SIZE / 2+4, Y_SIZE / 2, Z_SIZE / 2 )] = -100;
-	// dim3 blockSize(4, 4, 1);
+	
+	//declaring the no. of blocks
 	dim3 gridsize;
 	gridsize.x=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
 	gridsize.y=(((X_SIZE-1)/jump)+1)/blockSize.x + 1;
 	gridsize.z=1;
 
-	double *d_Arr;
+	//declaration of device variables
+	double *d_guess;
 	double *d_ans;
 	double *d_rho;
-	//input h_rho; and memcpy
 	double *d_ANS;
-	//thrust::device_vector<double> d_subtract;
-	//double *d_blockmax;
 	double *d_sub;
-	double *dummy;
 	double* d_error;
-	double h_sub[SIZE];
-	double h_ANS[SIZE];
-	//double h_blockmax[1];
-	//malloc
+	double * d_residual,max_error;
 
-	cudaMalloc((void**)&d_Arr, SIZE*sizeof(double));
+	//malloc
+	cudaMalloc((void**)&d_guess, SIZE*sizeof(double));
 	cudaMalloc((void**)&d_ans, SIZE*sizeof(double));
 	cudaMalloc((void**)&d_rho, SIZE*sizeof(double));
 	cudaMalloc((void**)&d_sub, SIZE*sizeof(double));
 	cudaMalloc((void**)&d_ANS, SIZE*sizeof(double));
 	cudaMalloc((void**)&d_error, SIZE*sizeof(double));
-	//cudaMalloc((void**)&d_blockmax, sizeof(double));
-	cudaMemcpy(d_Arr, Array, SIZE*sizeof(double), cudaMemcpyHostToDevice);
-	cudaMemcpy(d_rho, h_rho, SIZE*sizeof(double), cudaMemcpyHostToDevice);
-	//rstrict(9,9,9);
-	//cout<<jump;
-	// for (int i = 0; i<250; i++)
-	// {
-
-
-	// 	laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
-
-	// 	//cudaMemcpy(h_Arr, d_ans, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// 	jacobi << <gridsize, blockSize >> > (d_Arr, d_rho, d_ans, d_ANS,jump);
-
-	// 	abs_subtract << <gridsize, blockSize >> >(d_Arr, d_ANS, d_sub,jump);
-
-
-	// 	//thrust::host_vector<double> h_vec(SIZE);
-	// 	//thrust::generate(h_vec.begin(), h_vec.end(), rand);
-	// 	//for (int i = 0; i < 100; i++)
-	// 	//h_vec[i] = i;
-	// 	//thrust::device_vector<double>::iterator iter =
-	// 	//thrust::max_element(d_subtract.begin(), d_subtract.end());
-
-	// 	//unsigned int position = iter - d_sub.begin();
-
-	// 	// to make manually
-
-	// 	// cudaMemcpy(h_sub, d_sub, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// 	// double max_val = fabs(h_sub[0]);
-	// 	// for (int j = 0; j < SIZE; j++)
-	// 	// {
-
-	// 	// 	if (max_val < fabs(h_sub[j]))
-	// 	// 		max_val = h_sub[j];
-
-	// 	// }
-	// 	// cout << max_val << endl;
-		
-	// 	//max << <1, SIZE ,SIZE*sizeof(double)>> > (d_sub, d_blockmax);
-	// 	//cudaMemcpy(h_blockmax, d_blockmax, sizeof(double), cudaMemcpyDeviceToHost);
-	// 	//cout << *h_blockmax << endl;
-
-	// 	//cudaDeviceSynchronize();
-	// 	thrust::device_ptr<double> dev_ptr(d_sub);
-	// 	thrust::device_ptr<double> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
-	// 	//cudaDeviceSynchronize();
-	// 	cout << *devsptr<<endl;
-
-	// 	//cudaMemcpy(h_Arr, d_Arr, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// 	//for (int k = 0; k < SIZE; k++)
-	// 	//cout << h_ANS[k]<<" ";
-	// 	//cout << endl;
-
-	// 	//for (int i = 0; i < 5; i++)
-	// 	//cout << h_ANS[i] << " ";
-	// 	//cout << endl;
-
-	// 	// if(max_val<EPSILON)
-	// 	// 	break;
-	// 	if(*devsptr<EPSILON)
-	// 		break;
-	// 	dummy = d_Arr;
-	// 	d_Arr = d_ANS;
-	// 	d_ANS = dummy;
-	// }
-	// d_ANS=d_Arr;
-	//residual(d_ANS,d_Arr,d_rho);
-	// all_zero<<<gridsize,blockSize>>>(d_error,1);
-	// double * d_residual,max_error;
-	// cudaMalloc((void**)&d_residual,sizeof(double)*SIZE);
-	// for(int i=0;i<100;i++){
-	// 	d_Arr=smoother(d_rho,d_Arr,10);
-	// 	residual(d_residual,d_Arr,d_rho);
-	// 	rstrict(9,9,9);
-	// 	d_error=solver(d_residual,d_error,.00001);
-
-	// 	d_error=interpolate(d_error,d_residual,100);
-	// 	add<<<gridsize,blockSize>>>(d_error,d_Arr,d_Arr,jump);
-	// 	residual(d_residual,d_Arr,d_rho);
-	// 	boundary_zero<<<gridsize,blockSize>>>(d_residual);
-	// 	absolute<<<gridsize,blockSize>>>(d_residual,d_residual);
-	// 	thrust::device_ptr<double> dev_ptr(d_residual);
-	// 	thrust::device_ptr<double> devsptr=(thrust::max_element(dev_ptr, dev_ptr + SIZE));
-	// 	max_error=*devsptr;
-	// 	cout<<"Current error= "<<max_error<<endl;
-	// }
-	double * d_residual,max_error;
 	cudaMalloc((void**)&d_residual,sizeof(double)*SIZE);
+
+	//copying memory from host to device
+	cudaMemcpy(d_guess, guess, SIZE*sizeof(double), cudaMemcpyHostToDevice);
+	cudaMemcpy(d_rho, h_rho, SIZE*sizeof(double), cudaMemcpyHostToDevice);
+	
+	//initializing error array with 0
 	all_zero<<<gridsize,blockSize>>>(d_error,1);
 
-	// jump=4;
-	// while(jump>1)
-	// 	{	
-	// 		cudaDeviceSynchronize();
-	// 		d_error=interpolate(d_error);
-	// 		cudaDeviceSynchronize();
-	// 		d_error=smoother(d_rho,d_error,50);
-	// 	}
 	
-
-	for(int i=0;i<300;i++)
+	for(int i=0;i<ITER;i++)
 	{
 		cudaDeviceSynchronize();
 		jump=1;
+		d_guess=smoother(d_rho,d_guess,10);
 		cudaDeviceSynchronize();
-		d_Arr=smoother(d_rho,d_Arr,10);
-
-
 		
-		cudaDeviceSynchronize();
-		residual(d_residual,d_Arr,d_rho);
+		residual(d_residual,d_guess,d_rho);
 		cudaDeviceSynchronize();
 		
 		rstrict(9,9,9);
@@ -669,58 +491,27 @@ int main()
 		d_error=new_solver(d_residual,d_error,30);
 		cudaDeviceSynchronize();
 		
-		
-		
-		// // // d_error=interpolate(d_error,d_residual);
-		// // // d_error=smoother(d_residual,d_error,10);
 		while(jump>1)
 		{	
-			cudaDeviceSynchronize();
 			d_error=interpolate(d_error);
-			cudaDeviceSynchronize();
-			d_error=smoother(d_residual,d_error,10);
 			cudaDeviceSynchronize();
 		}
 		cudaDeviceSynchronize();
+		
 		d_error=smoother(d_residual,d_error,10);		
-		// // // // d_error=interpolate(d_error,d_residual);
-		// // // // d_error=smoother(d_residual,d_error,10);
 		cudaDeviceSynchronize();
-		add<<<gridSize,blockSize>>>(d_error,d_Arr,d_Arr,1);
+		add<<<gridSize,blockSize>>>(d_error,d_guess,d_guess,1);
 		
 		cudaDeviceSynchronize();
-		residual(d_residual,d_Arr,d_rho);
+		residual(d_residual,d_guess,d_rho);
 		
 		cudaDeviceSynchronize();
 		boundary_zero<<<gridSize,blockSize>>>(d_residual);
+		
 		cudaDeviceSynchronize();
 		absolute<<<gridSize,blockSize>>>(d_residual,d_residual);
-	// 	{int inc=jump;
-	// 		jump=2;
-	// 		cudaDeviceSynchronize();
-	// cudaMemcpy(h_ANS, d_error, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// cudaDeviceSynchronize();
-	// int count=0;
-	// // //cout<<jump;
-	// for(int k=0;k<Z_SIZE;k+=jump)
-	// {
-	// 	for(int j=0;j<Y_SIZE;j+=jump)
-	// 	{
-	// 		for(int i=0;i<X_SIZE;i+=jump)
-	// 			{
-	// 				if(h_ANS[pos(i,j,k)]<0)
-	// 					count++;
-	// 				printf("%9.6lf ",h_ANS[pos(i,j,k)]);
-	// 			}
-	// 		cout<<endl;
-	// 	}
-	// 	cout<<endl<<endl;
-
-	// }
-	// jump=inc;
-	// cudaDeviceSynchronize();
-	// cout << h_ANS[pos(X_SIZE / 2-4, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;}
 		
+		//calculating maximum value of error in the grid
 		cudaDeviceSynchronize();
 		thrust::device_ptr<double> dev_ptr(d_residual);
 		cudaDeviceSynchronize();
@@ -729,45 +520,21 @@ int main()
 		max_error=*devsptr;
 		cout<<"Current Error = "<<max_error<<endl;
 		cudaDeviceSynchronize();
-	// 	{int inc=jump;
-	// 		jump=2;
-	// 		cudaDeviceSynchronize();
-	// cudaMemcpy(h_ANS,d_residual, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// cudaDeviceSynchronize();
-	// int count=0;
-	// // //cout<<jump;
-	// for(int k=0;k<Z_SIZE;k+=jump)
-	// {
-	// 	for(int j=0;j<Y_SIZE;j+=jump)
-	// 	{
-	// 		for(int i=0;i<X_SIZE;i+=jump)
-	// 			{
-	// 				if(h_ANS[pos(i,j,k)]<0)
-	// 					count++;
-	// 				printf("%9.6lf ",h_ANS[pos(i,j,k)]);
-	// 			}
-	// 		cout<<endl;
-	// 	}
-	// 	cout<<endl<<endl;
-
-	// }
-	// jump=inc;
-	// cudaDeviceSynchronize();
-	// cout << h_ANS[pos(X_SIZE / 2-4, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;}
-		
-
-		cudaDeviceSynchronize();
-
 	}
-	do_negative<<<gridsize,blockSize>>>(d_Arr);
+
+	do_negative<<<gridsize,blockSize>>>(d_guess);
 	cudaDeviceSynchronize();
-	{int inc=jump;
-			jump=2;
-			cudaDeviceSynchronize();
-	cudaMemcpy(h_ANS, d_Arr, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
+	
+	int inc=jump;
+	jump=2;
 	cudaDeviceSynchronize();
+	
+	cudaMemcpy(h_ANS, d_guess, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
+	cudaDeviceSynchronize();
+	
 	int count=0;
-	// //cout<<jump;
+	
+	//printing of x-y plane
 	for(int k=0;k<Z_SIZE;k+=jump)
 	{
 		for(int j=0;j<Y_SIZE;j+=jump)
@@ -783,83 +550,20 @@ int main()
 		cout<<endl<<endl;
 
 	}
+	
 	jump=inc;
 	cudaDeviceSynchronize();
-	cout << h_ANS[pos(X_SIZE / 2-4, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;}
-	// d_Arr=interpolate(d_Arr,d_rho);
-	// d_Arr=smoother(d_rho,d_Arr,10);
-	// d_Arr=interpolate(d_Arr,d_rho);
-	// d_Arr=smoother(d_rho,d_Arr,10);
-	// cudaMemcpy(h_ANS, d_residual, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// int count=0;
-	// // //cout<<jump;
-	// for(int k=0;k<Z_SIZE;k+=jump)
-	// {
-	// 	for(int j=0;j<Y_SIZE;j+=jump)
-	// 	{
-	// 		for(int i=0;i<X_SIZE;i+=jump)
-	// 			{
-	// 				if(h_ANS[pos(i,j,k)]>.01)
-	// 					count++;
-	// 				printf("%9.6lf ",h_ANS[pos(i,j,k)]);
-	// 			}
-	// 		cout<<endl;
-	// 	}
-	// 	cout<<endl<<endl;
-	// }
-	// cout << h_ANS[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;
-	// 	// residual(d_residual,d_Arr,d_rho);
-	// d_Arr=smoother(d_rho,d_Arr,10);
-	// residual(d_residual,d_Arr,d_rho);
-	// rstrict(9,9,9);
-
-	//justtest<<<1,1>>>(d_ANS);
-	//dim3 gridsize((((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1,(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1, 1);
-	// rstrict(9,9,9);
-	//laplacian << <gridsize, blockSize >> > (d_Arr, d_ans,jump);
-	// gridsize.x=(((((gridSize.x-1)*blockSize.x)-1)/jump_x)+1)/blockSize.x +1;
-	// gridsize.y=(((((gridSize.y-1)*blockSize.y)-1)/jump_y)+1)/blockSize.y +1;
-	// gridsize.z=1;
-	// add<<<gridsize,blockSize>>>(d_ANS,d_ANS,d_ANS,jump_x,jump_y,jump_z);
-	// interpolate(gridSize,blockSize,d_ANS);
-	// jump=4;
-	// cudaMemcpy(h_ANS, d_Arr, SIZE*sizeof(double), cudaMemcpyDeviceToHost);
-	// int count=0;
-	// // //cout<<jump;
-	// for(int k=0;k<Z_SIZE;k+=jump)
-	// {
-	// 	for(int j=0;j<Y_SIZE;j+=jump)
-	// 	{
-	// 		for(int i=0;i<X_SIZE;i+=jump)
-	// 			{
-	// 				if(h_ANS[pos(i,j,k)]<0)
-	// 					count++;
-	// 				printf("%9.6lf ",h_ANS[pos(i,j,k)]);
-	// 			}
-	// 		cout<<endl;
-	// 	}
-	// 	cout<<endl<<endl;
-	// }
-	// cout << h_ANS[pos(X_SIZE / 2-2, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;
-	/*for (int k = 0; k<Z_SIZE; ++k)
-	{
-	for (int j = 0; j<Y_SIZE; ++j)
-	{
-	for (int i = 0; i<X_SIZE; ++i)
-	cout << h_Arr[(i)+(j*X_SIZE) + (k*Y_SIZE*X_SIZE)] << " ";
-	cout << endl;
-	}
-	cout << endl << endl;
-	}*/
-	//cout << h_Arr[pos(0, 5, 5)] << endl;
-	cudaFree(d_Arr);
+	
+	cout << h_ANS[pos(X_SIZE / 2-4, Y_SIZE / 2, Z_SIZE / 2 )]<<" "<<count<<" "<<jump;
+	
+	cudaFree(d_guess);
 	cudaFree(d_ans);
 	cudaFree(d_ANS);
 	cudaFree(d_rho);
 	cudaFree(d_sub);
-	cudaFree(dummy);
 	cudaFree(d_residual);
 	cudaFree(d_error);
-//	getchar();
+
+	cout<<endl;
 	return 0;
 }
